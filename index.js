@@ -167,9 +167,13 @@ server.listen(PORT, () => console.log(`🌐 Health check on PORT ${PORT}\n`));
 // =====================================================
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: SESSION_DIR }),
-  puppeteer: {
+  puppeteer: process.env.RENDER ? {
     headless: true,
     args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu','--disable-software-rasterizer']
+  } : {
+    headless: true,
+    executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    args: ['--no-sandbox','--disable-gpu']
   },
   webVersionCache: { type: 'remote', remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html' }
 });
