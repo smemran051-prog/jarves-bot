@@ -4,7 +4,8 @@ const http = require('http');
 const url = require('url');
 const https = require('https');
 
-const SESSION_DIR = '/tmp/jarves-session';  // Render temporary storage
+// Render-এ টেম্পোরারি স্টোরেজ, লোকালে ./session
+const SESSION_DIR = process.env.RENDER ? '/tmp/jarves-session' : './session';
 const PORT = process.env.PORT || 3000;
 
 // =====================================================
@@ -223,12 +224,14 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, () => console.log(`🌐 Health check on PORT ${PORT}\n`));
 
 // =====================================================
-// WHATSAPP CLIENT (Render-এ কোনো executablePath লাগবে না)
+// WHATSAPP CLIENT (Render ও লোকাল দুই জায়গায় কাজ করবে)
 // =====================================================
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: SESSION_DIR }),
   puppeteer: {
     headless: true,
+    // Render-এ CHROME_BIN ব্যবহার করবে, লোকালে Edge (Windows) অথবা ডিফল্ট
+    executablePath: process.env.CHROME_BIN || (process.platform === 'win32' ? 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe' : undefined),
     args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu']
   },
   webVersionCache: { type: 'remote', remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html' }
@@ -353,5 +356,5 @@ client.on('message', async (msg) => {
 
 client.on('disconnected', () => { setTimeout(() => client.initialize(), 5000); });
 
-console.log('🚂 Starting Jarves on Render...\n');
+console.log('🚂 Starting Jarves...\n');
 client.initialize();
