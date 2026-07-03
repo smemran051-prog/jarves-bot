@@ -4,21 +4,19 @@ const http = require('http');
 const url = require('url');
 const https = require('https');
 
-// Render-এ টেম্পোরারি স্টোরেজ, লোকালে ./session
 const SESSION_DIR = process.env.RENDER ? '/tmp/jarves-session' : './session';
 const PORT = process.env.PORT || 3000;
 
 // =====================================================
-// CONFIG (Environment Variables থেকে নেওয়া)
+// CONFIG
 // =====================================================
 const MASTER_NUMBER = process.env.MASTER_NUMBER || '01917255275';
 const DAILY_LIMIT = parseInt(process.env.DAILY_LIMIT || '5', 10);
 const KEYWORDS = (process.env.KEYWORDS || 'আপডেট,update,status,info,তথ্য,খোঁজ,search,warranty,ওয়ারেন্টি,guarantee').split(',').map(k => k.trim());
 const GROUPS = (process.env.GROUPS || '').split(',').map(g => g.trim()).filter(g => g);
-const BOT_ACTIVE = process.env.BOT_ACTIVE !== 'false'; // true by default
+const BOT_ACTIVE = process.env.BOT_ACTIVE !== 'false';
 let PAUSE_UNTIL = null;
 
-// OCR প্রোভাইডার (পরিবেশ ভেরিয়েবল থেকে)
 const OCR_PROVIDERS = [];
 if (process.env.GEMINI_API_KEY) OCR_PROVIDERS.push({ name: 'gemini', key: process.env.GEMINI_API_KEY });
 if (process.env.OPENAI_API_KEY) OCR_PROVIDERS.push({ name: 'openai', key: process.env.OPENAI_API_KEY });
@@ -32,10 +30,7 @@ const moduleOrder = ['bogie1_sheet', 'bogie2_ocr', 'bogie3_cache', 'bogie4_inten
 
 console.log('🚃 Loading bogies...\n');
 moduleOrder.forEach(name => {
-  try {
-    modules[name] = require(`./modules/${name}.js`);
-    console.log(`  🚃 ${name} connected`);
-  } catch (e) {}
+  try { modules[name] = require(`./modules/${name}.js`); console.log(`  🚃 ${name} connected`); } catch (e) {}
 });
 console.log('');
 
@@ -43,32 +38,20 @@ console.log('');
 // NUMBER MATCHER
 // =====================================================
 function matchNumber(num1, num2) {
-  const clean = (n) => {
-    let cleaned = (n || '').replace(/[^0-9]/g, '');
-    if (cleaned.startsWith('880')) cleaned = '0' + cleaned.substring(3);
-    return cleaned;
-  };
-  const a = clean(num1);
-  const b = clean(num2);
-  return a.length >= 10 && b.length >= 10 && a.slice(-10) === b.slice(-10);
+  const clean = (n) => { let c = (n || '').replace(/[^0-9]/g, ''); if (c.startsWith('880')) c = '0' + c.substring(3); return c; };
+  return clean(num1).slice(-10) === clean(num2).slice(-10) && clean(num1).length >= 10 && clean(num2).length >= 10;
 }
 
 // =====================================================
-// CACHE SYSTEM
+// CACHE
 // =====================================================
 let sheetCache = null;
 let lastCacheTime = null;
-const CACHE_REFRESH_MINUTES = 90;
-
 async function refreshCache() {
   if (modules['bogie1_sheet']) {
     try {
       const result = await modules['bogie1_sheet'].downloadSheetCSV('16_zjNAu2cQ5Dqj4ijU4fnBe_Gt7iTodCjhkjfQNBQD0', '0');
-      if (result && result.length > 0) {
-        sheetCache = result;
-        lastCacheTime = new Date();
-        console.log(`📦 Cache refreshed: ${result.length} rows`);
-      }
+      if (result && result.length > 0) { sheetCache = result; lastCacheTime = new Date(); console.log(`📦 Cache: ${result.length} rows`); }
     } catch (e) {}
   }
 }
@@ -80,19 +63,13 @@ const searchLimit = new Map();
 function checkLimit(userId, serialNumber) {
   const today = new Date().toDateString();
   const key = `${userId}_${serialNumber}_${today}`;
-  if (!searchLimit.has(key)) {
-    searchLimit.set(key, { count: 1 });
-    return { allowed: true, remaining: DAILY_LIMIT - 1 };
-  }
+  if (!searchLimit.has(key)) { searchLimit.set(key, { count: 1 }); return { allowed: true, remaining: DAILY_LIMIT - 1 }; }
   const data = searchLimit.get(key);
   if (data.count >= DAILY_LIMIT) return { allowed: false, remaining: 0 };
   data.count++;
   return { allowed: true, remaining: DAILY_LIMIT - data.count };
 }
-setInterval(() => {
-  const today = new Date().toDateString();
-  for (const [key] of searchLimit) if (!key.includes(today)) searchLimit.delete(key);
-}, 3600000);
+setInterval(() => { const today = new Date().toDateString(); for (const [key] of searchLimit) if (!key.includes(today)) searchLimit.delete(key); }, 3600000);
 
 // =====================================================
 // USER CONTEXT
@@ -104,31 +81,19 @@ const userContext = new Map();
 // =====================================================
 function extractSerials(text) {
   let cleanText = text;
-  KEYWORDS.forEach(kw => {
-    const regex = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-    cleanText = cleanText.replace(regex, ' ');
-  });
+  KEYWORDS.forEach(kw => { cleanText = cleanText.replace(new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ' '); });
   const words = cleanText.split(/[\s,.;:!?()\[\]{}\-|]+/);
   const serials = [];
   for (const word of words) {
     const cleaned = word.replace(/[^A-Za-z0-9]/g, '');
     if (cleaned.length < 11 || cleaned.length > 20) continue;
-    const digitCount = (cleaned.match(/\d/g) || []).length;
-    if (digitCount < 11) continue;
+    if ((cleaned.match(/\d/g) || []).length < 11) continue;
     if (/^(01|8801|096)\d+$/.test(cleaned)) continue;
     if (/^(INV|CMP|SO|CHL)/i.test(cleaned)) continue;
-    const firstChar = cleaned.charAt(0);
-    const lastChar = cleaned.charAt(cleaned.length - 1);
-    if (!/\d/.test(firstChar) || !/\d/.test(lastChar)) continue;
+    if (!/\d/.test(cleaned[0]) || !/\d/.test(cleaned.slice(-1))) continue;
     serials.push(cleaned.toUpperCase());
   }
-  if (serials.length === 0) {
-    const longNumber = text.match(/\d{11,20}/);
-    if (longNumber) {
-      const num = longNumber[0];
-      if (!/^(01|8801|096)\d+$/.test(num)) serials.push(num);
-    }
-  }
+  if (serials.length === 0) { const longNumber = text.match(/\d{11,20}/); if (longNumber && !/^(01|8801|096)\d+$/.test(longNumber[0])) serials.push(longNumber[0]); }
   return serials;
 }
 
@@ -138,15 +103,11 @@ function extractSerials(text) {
 function parseDate(str) {
   if (!str) return null;
   str = String(str).trim();
-  let match = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (match) return new Date(parseInt(match[1]), parseInt(match[2])-1, parseInt(match[3]));
-  match = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (match) return new Date(parseInt(match[3]), parseInt(match[1])-1, parseInt(match[2]));
+  let m = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/); if (m) return new Date(parseInt(m[1]), parseInt(m[2])-1, parseInt(m[3]));
+  m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); if (m) return new Date(parseInt(m[3]), parseInt(m[1])-1, parseInt(m[2]));
   return null;
 }
-function monthsBetween(d1, d2) {
-  return (d2.getFullYear() - d1.getFullYear()) * 12 + (d2.getMonth() - d1.getMonth());
-}
+function monthsBetween(d1, d2) { return (d2.getFullYear() - d1.getFullYear()) * 12 + (d2.getMonth() - d1.getMonth()); }
 
 // =====================================================
 // WARRANTY
@@ -161,12 +122,8 @@ function checkWarranty(entries, client) {
   const months = monthsBetween(purchaseDate, complaintDate);
   const isRaynsIT = client && client.toLowerCase().includes('rayns it');
   const warrantyPeriod = isRaynsIT ? 15 : 13;
-  if (months <= warrantyPeriod) {
-    return { status: 'in', message: `🛡️ *Warranty Status:* In Warranty\n📅 Purchased: ${salesDate} (${months} months ago)\n✅ Coverage: ${warrantyPeriod} months${isRaynsIT ? ' (Rayns IT Ltd)' : ''}` };
-  } else {
-    const expired = months - warrantyPeriod;
-    return { status: 'out', message: `🛡️ *Warranty Status:* Out of Warranty\n📅 Purchased: ${salesDate} (${months} months ago)\n⛔ Expired: ${expired} months ago\n📋 Policy: ${warrantyPeriod} months${isRaynsIT ? ' (Rayns IT Ltd)' : ''}` };
-  }
+  if (months <= warrantyPeriod) return { status: 'in', message: `🛡️ *Warranty Status:* In Warranty\n📅 Purchased: ${salesDate} (${months} months ago)\n✅ Coverage: ${warrantyPeriod} months${isRaynsIT ? ' (Rayns IT Ltd)' : ''}` };
+  else { const expired = months - warrantyPeriod; return { status: 'out', message: `🛡️ *Warranty Status:* Out of Warranty\n📅 Purchased: ${salesDate} (${months} months ago)\n⛔ Expired: ${expired} months ago\n📋 Policy: ${warrantyPeriod} months${isRaynsIT ? ' (Rayns IT Ltd)' : ''}` }; }
 }
 
 // =====================================================
@@ -181,38 +138,20 @@ function formatSingleResult(serialNumber, data, prevProduct, prevClient) {
   const showClient = !prevClient || prevClient !== currentClient;
   let reply = '';
   if (entries.length === 1) {
-    reply += `🔢 *Serial:* ${last.serial}\n`;
-    if (showProduct) reply += `📦 *Product:* ${currentProduct}\n`;
-    if (showClient) reply += `🏢 *Client:* ${currentClient}\n`;
-    reply += `📥 *Lab In:* ${last.inDate || 'N/A'}\n`;
-    reply += `🔧 *Work:* ${last.remarks || 'N/A'}\n`;
-    reply += `📍 *Status:* ${last.status || 'N/A'}\n`;
-    reply += `📤 *Lab Out:* ${last.labOut || 'Not yet'}`;
+    reply += `🔢 *Serial:* ${last.serial}\n`; if (showProduct) reply += `📦 *Product:* ${currentProduct}\n`; if (showClient) reply += `🏢 *Client:* ${currentClient}\n`;
+    reply += `📥 *Lab In:* ${last.inDate || 'N/A'}\n🔧 *Work:* ${last.remarks || 'N/A'}\n📍 *Status:* ${last.status || 'N/A'}\n📤 *Lab Out:* ${last.labOut || 'Not yet'}`;
   } else {
-    reply += `🔢 *Serial:* ${last.serial}\n`;
-    if (showProduct) reply += `📦 *Product:* ${currentProduct}\n`;
-    if (showClient) reply += `🏢 *Client:* ${currentClient}\n`;
+    reply += `🔢 *Serial:* ${last.serial}\n`; if (showProduct) reply += `📦 *Product:* ${currentProduct}\n`; if (showClient) reply += `🏢 *Client:* ${currentClient}\n`;
     reply += `📊 *Total Service:* ${entries.length} times\n\n`;
     const previous = entries.slice(-2, -1);
-    if (previous.length > 0) {
-      reply += `📋 *Previous Service:*\n`;
-      previous.forEach((entry) => {
-        const num = entries.length - 1;
-        reply += `  ${num}. 📥 ${entry.inDate || '?'} | 📤 ${entry.labOut || '?'} | 🔧 ${entry.remarks || '-'}\n`;
-      });
-      reply += `\n`;
-    }
-    reply += `─── *Latest Service* ───\n`;
-    reply += `📥 *Lab In:* ${last.inDate || 'N/A'}\n`;
-    reply += `🔧 *Work:* ${last.remarks || 'N/A'}\n`;
-    reply += `📍 *Status:* ${last.status || 'N/A'}\n`;
-    reply += `📤 *Lab Out:* ${last.labOut || 'Not yet'}`;
+    if (previous.length > 0) { reply += `📋 *Previous Service:*\n`; previous.forEach((entry) => { reply += `  ${entries.length - 1}. 📥 ${entry.inDate || '?'} | 📤 ${entry.labOut || '?'} | 🔧 ${entry.remarks || '-'}\n`; }); reply += `\n`; }
+    reply += `─── *Latest Service* ───\n📥 *Lab In:* ${last.inDate || 'N/A'}\n🔧 *Work:* ${last.remarks || 'N/A'}\n📍 *Status:* ${last.status || 'N/A'}\n📤 *Lab Out:* ${last.labOut || 'Not yet'}`;
   }
   return { reply, product: currentProduct, client: currentClient };
 }
 
 // =====================================================
-// HEALTH SERVER (UptimeRobot ping করবে)
+// HEALTH SERVER
 // =====================================================
 const server = http.createServer((req, res) => {
   const p = url.parse(req.url, true).pathname;
@@ -224,14 +163,13 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, () => console.log(`🌐 Health check on PORT ${PORT}\n`));
 
 // =====================================================
-// WHATSAPP CLIENT (Render ও লোকাল দুই জায়গায় কাজ করবে)
+// WHATSAPP CLIENT (Render-এর Chromium + লোকাল Edge)
 // =====================================================
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: SESSION_DIR }),
   puppeteer: {
     headless: true,
-    // Render-এ CHROME_BIN ব্যবহার করবে, লোকালে Edge (Windows) অথবা ডিফল্ট
-    executablePath: process.env.CHROME_BIN || (process.platform === 'win32' ? 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe' : undefined),
+    executablePath: process.env.CHROME_BIN || undefined,
     args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu']
   },
   webVersionCache: { type: 'remote', remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html' }
@@ -241,13 +179,10 @@ client.on('qr', (qr) => { console.log('\n📱 Scan QR:\n'); qrcode.generate(qr, 
 
 client.on('ready', async () => {
   console.log('✅ Jarves Ready!');
-  console.log(`👑 Master: ${MASTER_NUMBER}`);
-  console.log(`🔢 Limit: ${DAILY_LIMIT}/day`);
-  console.log(`👥 Groups: ${GROUPS.length > 0 ? GROUPS.join(', ') : 'All'}`);
-  console.log(`🔑 Keywords: ${KEYWORDS.join(', ')}`);
+  console.log(`👑 Master: ${MASTER_NUMBER}\n🔢 Limit: ${DAILY_LIMIT}/day\n👥 Groups: ${GROUPS.length > 0 ? GROUPS.join(', ') : 'All'}\n🔑 Keywords: ${KEYWORDS.join(', ')}`);
   await refreshCache();
   for (const [name, mod] of Object.entries(modules)) { if (mod.onReady) { try { await mod.onReady(client, {}); } catch (e) {} } }
-  setInterval(refreshCache, CACHE_REFRESH_MINUTES * 60 * 1000);
+  setInterval(refreshCache, 90 * 60 * 1000);
 });
 
 // =====================================================
@@ -261,15 +196,8 @@ client.on('message', async (msg) => {
     const isMaster = matchNumber(from, MASTER_NUMBER);
     const isSelf = matchNumber(from, msg.to);
 
-    // ===== BOGIE 2: OCR CHECK =====
-    if (modules['bogie2_ocr'] && msg.hasMedia) {
-      const ocrSerial = await modules['bogie2_ocr'].process(msg, client);
-      if (ocrSerial) {
-        body = (body ? body + ' ' : '') + 'update ' + ocrSerial;
-      }
-    }
+    if (modules['bogie2_ocr'] && msg.hasMedia) { const ocrSerial = await modules['bogie2_ocr'].process(msg, client); if (ocrSerial) body = (body ? body + ' ' : '') + 'update ' + ocrSerial; }
 
-    // ========== EMERGENCY ==========
     if ((isMaster || isSelf) && (body === '/off' || body.startsWith('/off '))) {
       const parts = body.split(' ');
       if (parts[1] === 'forever') { BOT_ACTIVE = false; PAUSE_UNTIL = null; await msg.reply('⏸️ Paused Forever'); }
@@ -282,67 +210,40 @@ client.on('message', async (msg) => {
     if (!BOT_ACTIVE && PAUSE_UNTIL && Date.now() > PAUSE_UNTIL) { BOT_ACTIVE = true; PAUSE_UNTIL = null; }
     if (!BOT_ACTIVE) { if ((isMaster || isSelf) && (body==='/status'||body==='/on'||body.startsWith('/off'))) {} else return; }
 
-    // ========== ADMIN COMMANDS ==========
     if (isMaster || isSelf) {
-      if (body === '/status') {
-        const s = `📊 *Jarves Status*\n🤖 Active: ${BOT_ACTIVE?'✅':'⏸️'}\n⏱ Uptime: ${Math.floor(process.uptime()/60)}m\n👑 Master: ${MASTER_NUMBER}\n🔢 Limit: ${DAILY_LIMIT}/day\n📦 Cache: ${lastCacheTime ? lastCacheTime.toLocaleTimeString('bn-BD') : 'None'}\n🚃 Bogies: ${Object.keys(modules).length}`;
-        await msg.reply(s); return;
-      }
-      if (body === '/refreshcache') { await msg.reply('🔄 Refreshing...'); await refreshCache(); await msg.reply(`✅ Cache refreshed! ${sheetCache?.length || 0} rows`); return; }
+      if (body === '/status') { const s = `📊 *Jarves Status*\n🤖 Active: ${BOT_ACTIVE?'✅':'⏸️'}\n⏱ Uptime: ${Math.floor(process.uptime()/60)}m\n👑 Master: ${MASTER_NUMBER}\n🔢 Limit: ${DAILY_LIMIT}/day\n📦 Cache: ${lastCacheTime ? lastCacheTime.toLocaleTimeString('bn-BD') : 'None'}\n🚃 Bogies: ${Object.keys(modules).length}`; await msg.reply(s); return; }
+      if (body === '/refreshcache') { await msg.reply('🔄 Refreshing...'); await refreshCache(); await msg.reply(`✅ ${sheetCache?.length || 0} rows`); return; }
       if (body.startsWith('/setlimit ')) { const v = parseInt(body.split(' ')[1]); if(v>0) { DAILY_LIMIT=v; await msg.reply(`✅ Limit=${v}`); } else await msg.reply('❌ Invalid'); return; }
-      if (body.startsWith('/addkeyword ')) { const kw=body.split(' ')[1].toLowerCase(); if(!KEYWORDS.includes(kw)) { KEYWORDS.push(kw); await msg.reply(`✅ Keyword "${kw}" added`); } else await msg.reply('⚠️ Exists'); return; }
+      if (body.startsWith('/addkeyword ')) { const kw=body.split(' ')[1].toLowerCase(); if(!KEYWORDS.includes(kw)) { KEYWORDS.push(kw); await msg.reply(`✅ "${kw}" added`); } else await msg.reply('⚠️ Exists'); return; }
       if (body.startsWith('/removekeyword ')) { const kw=body.split(' ')[1].toLowerCase(); KEYWORDS=KEYWORDS.filter(k=>k!==kw); await msg.reply(`✅ Removed`); return; }
       if (body === '/listkeywords') { await msg.reply(`🔑 ${KEYWORDS.join(', ')}`); return; }
       if (body.startsWith('/setmaster ')) { const num=body.split(' ')[1]; MASTER_NUMBER=num.replace(/[^0-9]/g,''); await msg.reply(`✅ Master=${MASTER_NUMBER}`); return; }
-      if (body.startsWith('/addgroup ')) { const g=body.replace('/addgroup ','').trim(); if(!GROUPS.includes(g)) { GROUPS.push(g); await msg.reply(`✅ Group "${g}" added (${GROUPS.length})`); } else await msg.reply('⚠️ Exists'); return; }
-      if (body.startsWith('/removegroup ')) { const g=body.replace('/removegroup ','').trim(); GROUPS=GROUPS.filter(x=>x!==g); await msg.reply(`✅ Removed (${GROUPS.length})`); return; }
+      if (body.startsWith('/addgroup ')) { const g=body.replace('/addgroup ','').trim(); if(!GROUPS.includes(g)) { GROUPS.push(g); await msg.reply(`✅ "${g}" added`); } else await msg.reply('⚠️ Exists'); return; }
+      if (body.startsWith('/removegroup ')) { const g=body.replace('/removegroup ','').trim(); GROUPS=GROUPS.filter(x=>x!==g); await msg.reply(`✅ Removed`); return; }
       if (body === '/listgroups') { await msg.reply(`👥 ${GROUPS.length>0?GROUPS.join('\n'):'All groups'}`); return; }
       if (body.startsWith('/addsheet ') && modules['bogie1_sheet']) { const p=body.replace('/addsheet ','').trim().split(' '); if(p.length>=3) { const r=modules['bogie1_sheet'].addSheet(p[0],p[1],p.slice(2).join(' ')); await msg.reply(r.message); } else await msg.reply('❌ /addsheet <link> <type> <name>'); return; }
       if (body === '/listsheets' && modules['bogie1_sheet']) { await msg.reply(modules['bogie1_sheet'].listSheets()); return; }
       if (isSelf && !body.startsWith('/')) { await msg.reply('👑 Admin Panel\n\n/status /refreshcache /setlimit /setmaster\n/addgroup /removegroup /listgroups\n/addsheet /listsheets\n/addkeyword /removekeyword /listkeywords\n/off /on'); return; }
     }
 
-    // ========== KEYWORD CHECK ==========
     const keywordFound = KEYWORDS.some(kw => body.toLowerCase().includes(kw));
     if (keywordFound) {
       const serialNumbers = extractSerials(body);
       if (serialNumbers.length === 0) { if (!chat.isGroup) await msg.reply('❌ সিরিয়াল পাওয়া যায়নি'); return; }
-
       if (modules['bogie1_sheet']) {
-        let reply = '';
-        let lastProduct = null;
-        let lastClient = null;
-
+        let reply = '', lastProduct = null, lastClient = null;
         for (let i = 0; i < serialNumbers.length; i++) {
           const serialNumber = serialNumbers[i];
           const { allowed } = checkLimit(from, serialNumber);
           if (!allowed) { reply += `⚠️ ${serialNumber}: limit\n\n`; continue; }
-
           let result = null;
-          if (sheetCache) {
-            const { entries } = modules['bogie1_sheet'].parseSheetData(sheetCache);
-            const matches = entries.filter(e => e.serial.toLowerCase() === serialNumber.toLowerCase());
-            if (matches.length > 0) result = { found: true, data: { sheetId:'cache', serial:serialNumber, totalCount:matches.length, entries:matches, sheetName:'Cache', sheetType:'default' } };
-          }
+          if (sheetCache) { const { entries } = modules['bogie1_sheet'].parseSheetData(sheetCache); const matches = entries.filter(e => e.serial.toLowerCase() === serialNumber.toLowerCase()); if (matches.length > 0) result = { found: true, data: { sheetId:'cache', serial:serialNumber, totalCount:matches.length, entries:matches, sheetName:'Cache', sheetType:'default' } }; }
           if (!result) result = await modules['bogie1_sheet'].searchSheets(serialNumber, body);
-
           if (result && result.found) {
             userContext.set(from, { lastSerial: serialNumber, lastResult: result, timestamp: Date.now() });
-
-            if (/warranty|ওয়ারেন্টি|guarantee/i.test(body)) {
-              const data = result.data;
-              const clientName = data.entries[data.entries.length-1]?.client || '';
-              const w = checkWarranty(data.entries, clientName);
-              reply += `─── *${serialNumber}* ───\n${w.message}\n\n`;
-            } else {
-              const formatted = formatSingleResult(serialNumber, result.data, lastProduct, lastClient);
-              reply += formatted.reply + '\n\n';
-              lastProduct = formatted.product;
-              lastClient = formatted.client;
-            }
-          } else {
-            if (!chat.isGroup) reply += `❌ ${serialNumber}: Not found\n\n`;
-          }
+            if (/warranty|ওয়ারেন্টি|guarantee/i.test(body)) { const data = result.data; const clientName = data.entries[data.entries.length-1]?.client || ''; const w = checkWarranty(data.entries, clientName); reply += `─── *${serialNumber}* ───\n${w.message}\n\n`; }
+            else { const formatted = formatSingleResult(serialNumber, result.data, lastProduct, lastClient); reply += formatted.reply + '\n\n'; lastProduct = formatted.product; lastClient = formatted.client; }
+          } else { if (!chat.isGroup) reply += `❌ ${serialNumber}: Not found\n\n`; }
         }
         if (reply) await msg.reply(reply.trim());
         return;
@@ -350,7 +251,6 @@ client.on('message', async (msg) => {
       await msg.reply('⚠️ Sheet module not loaded.');
       return;
     }
-
   } catch (e) { console.error(e.message); }
 });
 
