@@ -163,14 +163,13 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, () => console.log(`🌐 Health check on PORT ${PORT}\n`));
 
 // =====================================================
-// WHATSAPP CLIENT (Render-এর Chromium + লোকাল Edge)
+// WHATSAPP CLIENT (Render ও লোকাল দুই জায়গায় কাজ করবে)
 // =====================================================
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: SESSION_DIR }),
   puppeteer: {
     headless: true,
-    executablePath: process.env.CHROME_BIN || undefined,
-    args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu']
+    args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu','--disable-software-rasterizer']
   },
   webVersionCache: { type: 'remote', remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html' }
 });
