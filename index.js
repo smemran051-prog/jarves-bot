@@ -1,4 +1,5 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
+const puppeteer = require('puppeteer');
 const qrcode = require('qrcode-terminal');
 const http = require('http');
 const url = require('url');
@@ -169,6 +170,7 @@ const client = new Client({
   authStrategy: new LocalAuth({ dataPath: SESSION_DIR }),
   puppeteer: process.env.RENDER ? {
     headless: true,
+    executablePath: puppeteer.executablePath(), // <-- এই লাইনটি যুক্ত করতে হবে
     args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu','--disable-software-rasterizer']
   } : {
     headless: true,
