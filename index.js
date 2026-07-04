@@ -169,8 +169,16 @@ const client = new Client({
   authStrategy: new LocalAuth({ dataPath: SESSION_DIR }),
   puppeteer: (() => {
     const baseArgs = {
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+      headless: "new",   // ✅ পরিবর্তিত
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-features=TranslateUI',      // ✅ নতুন
+        '--disable-ipc-flooding-protection',  // ✅ নতুন
+        '--disable-hang-monitor'              // ✅ নতুন
+      ]
     };
     if (process.env.RENDER) {
       const fs = require('fs');
@@ -189,7 +197,7 @@ const client = new Client({
       baseArgs.executablePath = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
     }
     return baseArgs;
-  })(), // <-- এই কমা আগে বাদ ছিল
+  })(),
   webVersionCache: { type: 'remote', remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html' }
 });
 
