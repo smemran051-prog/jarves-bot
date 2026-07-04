@@ -193,7 +193,10 @@ const client = new Client({
   webVersionCache: { type: 'remote', remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html' }
 });
 
-client.on('qr', (qr) => { console.log('\n📱 Scan QR:\n'); qrcode.generate(qr, { small: true }); });
+client.on('qr', (qr) => {
+    console.log('\n📱 QR RECEIVED! Scan using the link below:\n');
+    console.log('https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' + encodeURIComponent(qr));
+});
 
 client.on('ready', async () => {
   console.log('✅ Jarves Ready!');
