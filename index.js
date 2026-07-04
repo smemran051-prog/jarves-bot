@@ -167,16 +167,29 @@ server.listen(PORT, () => console.log(`🌐 Health check on PORT ${PORT}\n`));
 // =====================================================
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: SESSION_DIR }),
-  puppeteer: process.env.RENDER ? {
-    headless: true,
-    args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu','--disable-software-rasterizer']
-  } : {
-    headless: true,
-    executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-    args: ['--no-sandbox','--disable-gpu']
-  },
-  webVersionCache: { type: 'remote', remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html' }
-});
+    puppeteer: (() => {
+    const baseArgs = {
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+    };
+    if (process.env.RENDER) {
+      const fs = require('fs');
+      const path = require('path');
+      const cacheDir = '/opt/render/project/src/puppeteer_cache/chrome';
+      try {
+        if (fs.existsSync(cacheDir)) {
+          const dirs = fs.readdirSync(cacheDir).filter(d => d.startsWith('linux-'));
+          if (dirs.length > 0) {
+            const latest = dirs.sort().pop();
+            baseArgs.executablePath = path.join(cacheDir, latest, 'chrome-linux64', 'chrome');
+          }
+        }
+      } catch (e) {}
+    } else {
+      baseArgs.executablePath = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
+    }
+    return baseArgs;
+  })(),
 
 client.on('qr', (qr) => { console.log('\n📱 Scan QR:\n'); qrcode.generate(qr, { small: true }); });
 
