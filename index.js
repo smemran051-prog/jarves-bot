@@ -14,7 +14,7 @@ const MASTER_NUMBER = process.env.MASTER_NUMBER || '01917255275';
 const DAILY_LIMIT = parseInt(process.env.DAILY_LIMIT || '5', 10);
 const KEYWORDS = (process.env.KEYWORDS || 'আপডেট,update,status,info,তথ্য,খোঁজ,search,warranty,ওয়ারেন্টি,guarantee').split(',').map(k => k.trim());
 const GROUPS = (process.env.GROUPS || '').split(',').map(g => g.trim()).filter(g => g);
-const BOT_ACTIVE = process.env.BOT_ACTIVE !== 'false';
+let BOT_ACTIVE = process.env.BOT_ACTIVE !== 'false';   // <-- const → let
 let PAUSE_UNTIL = null;
 
 const OCR_PROVIDERS = [];
@@ -163,11 +163,11 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, () => console.log(`🌐 Health check on PORT ${PORT}\n`));
 
 // =====================================================
-// WHATSAPP CLIENT (লোকালে Edge, Render-এ puppeteer-এর ডিফল্ট Chromium)
+// WHATSAPP CLIENT
 // =====================================================
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: SESSION_DIR }),
-    puppeteer: (() => {
+  puppeteer: (() => {
     const baseArgs = {
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
@@ -189,7 +189,9 @@ const client = new Client({
       baseArgs.executablePath = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
     }
     return baseArgs;
-  })(),
+  })(), // <-- এই কমা আগে বাদ ছিল
+  webVersionCache: { type: 'remote', remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html' }
+});
 
 client.on('qr', (qr) => { console.log('\n📱 Scan QR:\n'); qrcode.generate(qr, { small: true }); });
 
