@@ -1,6 +1,15 @@
-2026/07/03-23:22:24.672 948 Reusing MANIFEST E:\Online Whatsapp Bor\jarves-bot\session\session\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
-2026/07/03-23:22:24.673 948 Recovering log #58
-2026/07/03-23:22:24.675 948 Reusing old log E:\Online Whatsapp Bor\jarves-bot\session\session\Default\EdgeCoupons/coupons_data.db/000058.log 
-2026/07/03-23:22:24.748 1498 Level-0 table #63: started
-2026/07/03-23:22:24.753 1498 Level-0 table #63: 683004 bytes OK
-2026/07/03-23:22:24.755 1498 Delete type=0 #58
+2026/07/04-22:30:00.349 2d6c Reusing MANIFEST E:\Online Whatsapp Bor\jarves-bot\session\session\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
+2026/07/04-22:30:00.350 2d6c Recovering log #68
+2026/07/04-22:30:00.350 2d6c Reusing old log E:\Online Whatsapp Bor\jarves-bot\session\session\Default\EdgeCoupons/coupons_data.db/000068.log 
+2026/07/04-22:30:00.486 2994 Level-0 table #72: started
+2026/07/04-22:30:00.491 2994 Level-0 table #72: 683004 bytes OK
+2026/07/04-22:30:00.492 2994 Delete type=0 #68
+2026/07/04-22:30:00.493 2de0 Compacting 4@0 + 1@1 files
+2026/07/04-22:30:00.517 2de0 Generated table #73@0: 3 keys, 683004 bytes
+2026/07/04-22:30:00.517 2de0 Compacted 4@0 + 1@1 files => 683004 bytes
+2026/07/04-22:30:00.518 2de0 compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/07/04-22:30:00.518 2de0 Delete type=2 #60
+2026/07/04-22:30:00.518 2de0 Delete type=2 #63
+2026/07/04-22:30:00.518 2de0 Delete type=2 #66
+2026/07/04-22:30:00.518 2de0 Delete type=2 #69
+2026/07/04-22:30:00.518 2de0 Delete type=2 #72
