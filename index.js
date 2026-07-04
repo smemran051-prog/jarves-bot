@@ -194,8 +194,9 @@ const client = new Client({
 });
 
 client.on('qr', (qr) => {
-    console.log('\n📱 QR RECEIVED! Scan using the link below:\n');
-    console.log('https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=' + encodeURIComponent(qr));
+    // এই লাইনে আমরা qrcode-terminal এর বদলে সরাসরি কিউআর কোড লিঙ্ক জেনারেটর ব্যবহার করছি
+    console.log('QR RECEIVED, scan this in your browser:');
+    console.log('https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(qr));
 });
 
 client.on('ready', async () => {
