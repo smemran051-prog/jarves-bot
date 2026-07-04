@@ -4,33 +4,37 @@ const http = require('http');
 const url = require('url');
 const https = require('https');
 
-const SESSION_DIR = process.env.RENDER ? '/tmp/jarves-session' : './session';
-const PORT = process.env.PORT || 3000;
+const SESSION_DIR = './session';
+const PORT = 3000;
 
 // =====================================================
 // CONFIG
 // =====================================================
-const MASTER_NUMBER = process.env.MASTER_NUMBER || '01917255275';
-const DAILY_LIMIT = parseInt(process.env.DAILY_LIMIT || '5', 10);
-const KEYWORDS = (process.env.KEYWORDS || 'আপডেট,update,status,info,তথ্য,খোঁজ,search,warranty,ওয়ারেন্টি,guarantee').split(',').map(k => k.trim());
-const GROUPS = (process.env.GROUPS || '').split(',').map(g => g.trim()).filter(g => g);
-let BOT_ACTIVE = process.env.BOT_ACTIVE !== 'false';   // <-- const → let
+let MASTER_NUMBER = '01917255275';
+let BOT_ACTIVE = true;
 let PAUSE_UNTIL = null;
-
-const OCR_PROVIDERS = [];
-if (process.env.GEMINI_API_KEY) OCR_PROVIDERS.push({ name: 'gemini', key: process.env.GEMINI_API_KEY });
-if (process.env.OPENAI_API_KEY) OCR_PROVIDERS.push({ name: 'openai', key: process.env.OPENAI_API_KEY });
-if (process.env.GROQ_API_KEY) OCR_PROVIDERS.push({ name: 'groq', key: process.env.GROQ_API_KEY });
+let DAILY_LIMIT = 3;
+let KEYWORDS = ['আপডেট', 'update', 'status', 'info', 'তথ্য', 'খোঁজ', 'search', 'warranty', 'ওয়ারেন্টি', 'guarantee'];
+let GROUPS = [];
 
 // =====================================================
-// AUTO-LOAD MODULES
+// CONFIG SHEET (memory)
+// =====================================================
+const CONFIG_SHEET_ID = '1lsTcuBvuxPxUqDqD04sMPJI9Hjuo0V77teQ3dvPc7LQ';
+const CONFIG_SHEET_NAME = 'memory';
+
+// =====================================================
+// MODULE LOADER
 // =====================================================
 const modules = {};
 const moduleOrder = ['bogie1_sheet', 'bogie2_ocr', 'bogie3_cache', 'bogie4_intent', 'bogie5_reply', 'bogie6_admin', 'bogie7_ai'];
 
 console.log('🚃 Loading bogies...\n');
 moduleOrder.forEach(name => {
-  try { modules[name] = require(`./modules/${name}.js`); console.log(`  🚃 ${name} connected`); } catch (e) {}
+  try {
+    modules[name] = require(`./modules/${name}.js`);
+    console.log(`  🚃 ${name} connected`);
+  } catch (e) {}
 });
 console.log('');
 
@@ -57,6 +61,34 @@ async function refreshCache() {
 }
 
 // =====================================================
+// CONFIG LOADER (memory sheet থেকে)
+// =====================================================
+async function loadConfigFromSheet() {
+  try {
+    const sheetUrl = `https://docs.google.com/spreadsheets/d/${CONFIG_SHEET_ID}/export?format=csv&gid=294604320`;
+    const res = await new Promise((resolve, reject) => {
+      https.get(sheetUrl, (response) => {
+        let data = '';
+        response.on('data', (chunk) => data += chunk);
+        response.on('end', () => resolve(data));
+      }).on('error', reject);
+    });
+    const rows = res.split('\n').filter(r => r.trim());
+    const config = {};
+    rows.forEach(row => {
+      const cols = row.split(',').map(c => c.replace(/^"|"$/g, '').trim());
+      if (cols.length >= 2) config[cols[0].toLowerCase()] = cols[1];
+    });
+    if (config['master']) MASTER_NUMBER = config['master'].replace(/[^0-9]/g, '');
+    if (config['limit']) DAILY_LIMIT = parseInt(config['limit']);
+    if (config['keywords']) KEYWORDS = config['keywords'].split(',').map(k => k.trim());
+    if (config['groups']) GROUPS = config['groups'].split(',').map(g => g.trim());
+    if (config['active'] !== undefined) BOT_ACTIVE = config['active'].toLowerCase() === 'true';
+    console.log(`  👑 Master: ${MASTER_NUMBER} | Limit: ${DAILY_LIMIT} | Active: ${BOT_ACTIVE}`);
+  } catch (e) {}
+}
+
+// =====================================================
 // SEARCH LIMIT
 // =====================================================
 const searchLimit = new Map();
@@ -70,11 +102,6 @@ function checkLimit(userId, serialNumber) {
   return { allowed: true, remaining: DAILY_LIMIT - data.count };
 }
 setInterval(() => { const today = new Date().toDateString(); for (const [key] of searchLimit) if (!key.includes(today)) searchLimit.delete(key); }, 3600000);
-
-// =====================================================
-// USER CONTEXT
-// =====================================================
-const userContext = new Map();
 
 // =====================================================
 // SERIAL EXTRACT
@@ -163,48 +190,28 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, () => console.log(`🌐 Health check on PORT ${PORT}\n`));
 
 // =====================================================
-// WHATSAPP CLIENT
+// WHATSAPP CLIENT (লোকাল Edge)
 // =====================================================
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: SESSION_DIR }),
-  puppeteer: (() => {
-    const baseArgs = {
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-    };
-    if (process.env.RENDER) {
-      const fs = require('fs');
-      const path = require('path');
-      const cacheDir = '/opt/render/project/src/puppeteer_cache/chrome';
-      try {
-        if (fs.existsSync(cacheDir)) {
-          const dirs = fs.readdirSync(cacheDir).filter(d => d.startsWith('linux-'));
-          if (dirs.length > 0) {
-            const latest = dirs.sort().pop();
-            baseArgs.executablePath = path.join(cacheDir, latest, 'chrome-linux64', 'chrome');
-          }
-        }
-      } catch (e) {}
-    } else {
-      baseArgs.executablePath = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
-    }
-    return baseArgs;
-  })(), // <-- এই কমা আগে বাদ ছিল
+  puppeteer: {
+    headless: true,
+    executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    args: ['--no-sandbox','--disable-gpu']
+  },
   webVersionCache: { type: 'remote', remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html' }
 });
 
-client.on('qr', (qr) => {
-    // এই লাইনে আমরা qrcode-terminal এর বদলে সরাসরি কিউআর কোড লিঙ্ক জেনারেটর ব্যবহার করছি
-    console.log('QR RECEIVED, scan this in your browser:');
-    console.log('https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(qr));
-});
+client.on('qr', (qr) => { console.log('\n📱 Scan QR:\n'); qrcode.generate(qr, { small: true }); });
 
 client.on('ready', async () => {
   console.log('✅ Jarves Ready!');
-  console.log(`👑 Master: ${MASTER_NUMBER}\n🔢 Limit: ${DAILY_LIMIT}/day\n👥 Groups: ${GROUPS.length > 0 ? GROUPS.join(', ') : 'All'}\n🔑 Keywords: ${KEYWORDS.join(', ')}`);
+  console.log(`👑 Master: ${MASTER_NUMBER}\n🔢 Limit: ${DAILY_LIMIT}/day\n👥 Groups: All\n🔑 Keywords: ${KEYWORDS.join(', ')}`);
+  await loadConfigFromSheet();
   await refreshCache();
   for (const [name, mod] of Object.entries(modules)) { if (mod.onReady) { try { await mod.onReady(client, {}); } catch (e) {} } }
   setInterval(refreshCache, 90 * 60 * 1000);
+  setInterval(loadConfigFromSheet, 30 * 60 * 1000);
 });
 
 // =====================================================
