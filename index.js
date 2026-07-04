@@ -1,5 +1,4 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
-const puppeteer = require('puppeteer');
 const qrcode = require('qrcode-terminal');
 const http = require('http');
 const url = require('url');
@@ -164,15 +163,17 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, () => console.log(`🌐 Health check on PORT ${PORT}\n`));
 
 // =====================================================
-// WHATSAPP CLIENT (Render ও লোকাল দুই জায়গায় কাজ করবে)
+// WHATSAPP CLIENT (লোকালে Edge, Render-এ puppeteer-এর ডিফল্ট Chromium)
 // =====================================================
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: SESSION_DIR }),
-  puppeteer: {
+  puppeteer: process.env.RENDER ? {
     headless: true,
-    args: process.env.RENDER
-      ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--disable-software-rasterizer']
-      : ['--no-sandbox', '--disable-gpu']
+    args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu','--disable-software-rasterizer']
+  } : {
+    headless: true,
+    executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    args: ['--no-sandbox','--disable-gpu']
   },
   webVersionCache: { type: 'remote', remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html' }
 });
@@ -259,15 +260,4 @@ client.on('message', async (msg) => {
 client.on('disconnected', () => { setTimeout(() => client.initialize(), 5000); });
 
 console.log('🚂 Starting Jarves...\n');
-
-if (process.env.RENDER) {
-    // Render-এর জন্য Promise resolve করে ব্রাউজার পাথ সেট করা
-    puppeteer.executablePath().then(browserPath => {
-        client.options.puppeteer.executablePath = browserPath;
-        client.initialize();
-    }).catch(err => console.error('Browser Path Error:', err));
-} else {
-    // লোকাল কম্পিউটারের (Edge) জন্য
-    client.options.puppeteer.executablePath = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
-    client.initialize();
-}
+client.initialize();
