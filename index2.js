@@ -1,4 +1,5 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
+const qrcode = require('qrcode-terminal');
 const http = require('http');
 const url = require('url');
 const https = require('https');
@@ -9,10 +10,10 @@ const PORT = process.env.PORT || 3000;
 // =====================================================
 // CONFIG
 // =====================================================
-let MASTER_NUMBER = process.env.MASTER_NUMBER || '01917255275';
-let DAILY_LIMIT = parseInt(process.env.DAILY_LIMIT || '5', 10);
-let KEYWORDS = (process.env.KEYWORDS || 'আপডেট,update,status,info,তথ্য,খোঁজ,search,warranty,ওয়ারেন্টি,guarantee').split(',').map(k => k.trim());
-let GROUPS = (process.env.GROUPS || '').split(',').map(g => g.trim()).filter(g => g);
+const MASTER_NUMBER = process.env.MASTER_NUMBER || '01917255275';
+const DAILY_LIMIT = parseInt(process.env.DAILY_LIMIT || '5', 10);
+const KEYWORDS = (process.env.KEYWORDS || 'আপডেট,update,status,info,তথ্য,খোঁজ,search,warranty,ওয়ারেন্টি,guarantee').split(',').map(k => k.trim());
+const GROUPS = (process.env.GROUPS || '').split(',').map(g => g.trim()).filter(g => g);
 let BOT_ACTIVE = process.env.BOT_ACTIVE !== 'false';
 let PAUSE_UNTIL = null;
 
@@ -189,28 +190,51 @@ server.listen(PORT, () => console.log(`🌐 Health check on PORT ${PORT}\n`));
 // =====================================================
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: SESSION_DIR }),
-  puppeteer: {
-    headless: true,
-    args: [
-        '--no-sandbox', 
-        '--disable-setuid-sandbox', 
-        '--disable-dev-shm-usage', 
-        '--disable-accelerated-2d-canvas', 
-        '--no-first-run', 
-        '--no-zygote', 
-        '--single-process',
-        '--disable-gpu'
-    ]
-  },
+  puppeteer: (() => {
+    const baseArgs = {
+      headless: "new",
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-extensions',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding',
+        '--disable-software-rasterizer',
+        '--disable-features=TranslateUI',
+        '--disable-ipc-flooding-protection',
+        '--disable-hang-monitor',
+        '--disable-popup-blocking',
+        '--disable-prompt-on-repost',
+        '--disable-sync',
+        '--max_old_space_size=128',
+        '--single-process'
+      ]
+    };
+    if (process.env.RENDER) {
+      const fs = require('fs');
+      const path = require('path');
+      const cacheDir = '/opt/render/project/src/puppeteer_cache/chrome';
+      try {
+        if (fs.existsSync(cacheDir)) {
+          const dirs = fs.readdirSync(cacheDir).filter(d => d.startsWith('linux-'));
+          if (dirs.length > 0) {
+            const latest = dirs.sort().pop();
+            baseArgs.executablePath = path.join(cacheDir, latest, 'chrome-linux64', 'chrome');
+          }
+        }
+      } catch (e) {}
+    } else {
+      baseArgs.executablePath = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
+    }
+    return baseArgs;
+  })(),
   webVersionCache: { type: 'remote', remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html' }
 });
 
-client.on('qr', (qr) => { 
-  console.log('\n=========================================');
-  console.log('📱 QR RECEIVED! Click the link below to scan:');
-  console.log('https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' + encodeURIComponent(qr));
-  console.log('=========================================\n');
-});
+client.on('qr', (qr) => { console.log('\n📱 Scan QR:\n'); qrcode.generate(qr, { small: true }); });
 
 client.on('ready', async () => {
   console.log('✅ Jarves Ready!');
@@ -232,6 +256,9 @@ client.on('message', async (msg) => {
     const from = msg.from || '';
     const isMaster = matchNumber(from, MASTER_NUMBER);
     const isSelf = matchNumber(from, msg.to);
+
+    // OCR বন্ধ, তাই এই ব্লক চলবে না
+    // if (modules['bogie2_ocr'] && msg.hasMedia) { ... }
 
     if ((isMaster || isSelf) && (body === '/off' || body.startsWith('/off '))) {
       const parts = body.split(' ');
@@ -264,7 +291,7 @@ client.on('message', async (msg) => {
     const keywordFound = KEYWORDS.some(kw => body.toLowerCase().includes(kw));
     if (keywordFound) {
       const serialNumbers = extractSerials(body);
-      if (serialNumbers.length === 0) { if (!chat.isGroup) await msg.reply('❌ সিরিয়াল পাওয়া যায়নি'); return; }
+      if (serialNumbers.length === 0) { if (!chat.isGroup) await msg.reply('❌ সিরিয়াল পাওয়া যায়নি'); return; }
       if (modules['bogie1_sheet']) {
         let reply = '', lastProduct = null, lastClient = null;
         for (let i = 0; i < serialNumbers.length; i++) {
@@ -276,7 +303,7 @@ client.on('message', async (msg) => {
           if (!result) result = await modules['bogie1_sheet'].searchSheets(serialNumber, body);
           if (result && result.found) {
             userContext.set(from, { lastSerial: serialNumber, lastResult: result, timestamp: Date.now() });
-            if (/warranty|ওয়ারেন্টি|guarantee/i.test(body)) { const data = result.data; const clientName = data.entries[data.entries.length-1]?.client || ''; const w = checkWarranty(data.entries, clientName); reply += `─── *${serialNumber}* ───\n${w.message}\n\n`; }
+            if (/warranty|ওয়ারেন্টি|guarantee/i.test(body)) { const data = result.data; const clientName = data.entries[data.entries.length-1]?.client || ''; const w = checkWarranty(data.entries, clientName); reply += `─── *${serialNumber}* ───\n${w.message}\n\n`; }
             else { const formatted = formatSingleResult(serialNumber, result.data, lastProduct, lastClient); reply += formatted.reply + '\n\n'; lastProduct = formatted.product; lastClient = formatted.client; }
           } else { if (!chat.isGroup) reply += `❌ ${serialNumber}: Not found\n\n`; }
         }
